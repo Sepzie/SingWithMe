@@ -1,0 +1,234 @@
+openapi: 3.0.0
+info:
+  title: SingWithMe API
+  description: API for audio processing, vocal separation, and lyrics transcription
+  version: 1.0.0
+  contact:
+    name: Support
+    email: support@singwithme.com
+
+servers:
+  - url: http://localhost:5000
+    description: Local development server
+
+paths:
+  /health:
+    get:
+      summary: Health check endpoint
+      description: Checks the health of the service and its dependencies
+      operationId: healthCheck
+      responses:
+        '200':
+          description: The service is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+        '503':
+          description: The service is unhealthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: unhealthy
+                  details:
+                    type: string
+                    example: Redis connection failed
+
+  /api/upload:
+    post:
+      summary: Upload audio file
+      description: Upload an audio file for processing (vocal separation and lyrics transcription)
+      operationId: uploadFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Audio file (MP3 or WAV)
+              required:
+                - file
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jobId:
+                    type: string
+                    description: Unique identifier for the processing job
+                    example: 550e8400-e29b-41d4-a716-446655440000
+        '400':
+          description: Invalid file format
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Only MP3 and WAV files are supported
+
+  /api/status/{job_id}:
+    get:
+      summary: Check processing status
+      description: Check the status of an audio processing job
+      operationId: getStatus
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The job ID returned from the upload endpoint
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Processing status
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  state:
+                    type: string
+                    description: Current processing state
+                    enum: [uploaded, processing, completed, failed]
+                    example: processing
+                  progress:
+                    type: number
+                    nullable: true
+                    description: Processing progress from 0 to 1
+                    example: 0.5
+                  error:
+                    type: string
+                    nullable: true
+                    description: Error message if processing failed
+                    example: null
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Job not found
+
+  /api/tracks/{job_id}:
+    get:
+      summary: Get processed tracks
+      description: Get the processed vocal and instrumental tracks with lyrics
+      operationId: getTracks
+      parameters:
+        - name: job_id
+          in: path
+          required: true
+          description: The job ID returned from the upload endpoint
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Processed tracks and lyrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  vocal:
+                    type: string
+                    description: URL to the separated vocal track
+                    example: /output/550e8400-e29b-41d4-a716-446655440000/vocals.wav
+                  instrumental:
+                    type: string
+                    description: URL to the separated instrumental track
+                    example: /output/550e8400-e29b-41d4-a716-446655440000/accompaniment.wav
+                  lyrics:
+                    type: array
+                    description: Transcribed lyrics with timestamps
+                    items:
+                      type: object
+                      properties:
+                        startTime:
+                          type: number
+                          description: Start time in seconds
+                          example: 1.2
+                        endTime:
+                          type: number
+                          description: End time in seconds
+                          example: 5.7
+                        text:
+                          type: string
+                          description: The text of the lyric line
+                          example: Hello, it's me
+        '400':
+          description: Processing not completed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Processing not completed
+        '404':
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: string
+                    example: Job not found
+
+components:
+  schemas:
+    ProcessingStatus:
+      type: object
+      properties:
+        state:
+          type: string
+          description: Current processing state
+          enum: [uploaded, processing, completed, failed]
+          example: processing
+        progress:
+          type: number
+          nullable: true
+          description: Processing progress from 0 to 1
+          example: 0.5
+        error:
+          type: string
+          nullable: true
+          description: Error message if processing failed
+          example: null
+    
+    LyricLine:
+      type: object
+      properties:
+        startTime:
+          type: number
+          description: Start time in seconds
+          example: 1.2
+        endTime:
+          type: number
+          description: End time in seconds
+          example: 5.7
+        text:
+          type: string
+          description: The text of the lyric line
+          example: Hello, it's me 
