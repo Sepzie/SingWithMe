@@ -1,149 +1,141 @@
-import Sound from 'react-native-sound';
+import { Audio } from 'expo-av';
 
 export class AudioProcessor {
   constructor() {
-    Sound.setCategory('Playback');
-    this.vocalTrack = null;
-    this.instrumentalTrack = null;
-    this.vocalVolume = 1.0;
-    this.instrumentalVolume = 1.0;
-    this.vocalPitch = 0;
-    this.instrumentalPitch = 0;
+    this.vocalSound = null;
+    this.instrumentalSound = null;
     this.isLoaded = false;
+    this.isAudioInitialized = false;
   }
 
-  loadTracks(vocalUrl, instrumentalUrl) {
-    return new Promise((resolve, reject) => {
-      // Release any existing tracks first
-      this.release();
-      
-      // Load vocal track
-      this.vocalTrack = new Sound(vocalUrl, null, (error) => {
-        if (error) {
-          console.error('Failed to load vocal track:', error);
-          reject(new Error(`Failed to load vocal track: ${error.message}`));
-          return;
-        }
-        
-        // Load instrumental track
-        this.instrumentalTrack = new Sound(instrumentalUrl, null, (error) => {
-          if (error) {
-            console.error('Failed to load instrumental track:', error);
-            // Clean up vocal track if instrumental fails
-            if (this.vocalTrack) {
-              this.vocalTrack.release();
-              this.vocalTrack = null;
-            }
-            reject(new Error(`Failed to load instrumental track: ${error.message}`));
-            return;
-          }
-          
-          // Apply initial volume settings
-          this.setVocalVolume(this.vocalVolume);
-          this.setInstrumentalVolume(this.instrumentalVolume);
-          
-          this.isLoaded = true;
-          resolve();
-        });
+  // Initialize the Audio module
+  async initializeAudio() {
+    if (this.isAudioInitialized) return;
+    
+    try {
+      // Use simple settings to avoid errors
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
       });
-    });
-  }
-
-  setVocalVolume(volume) {
-    this.vocalVolume = volume;
-    if (this.vocalTrack) {
-      this.vocalTrack.setVolume(volume);
+      this.isAudioInitialized = true;
+      console.log('Audio mode set successfully');
+    } catch (error) {
+      console.error('Failed to set audio mode, continuing anyway:', error);
+      // Continue anyway, as this might not be critical
+      this.isAudioInitialized = true;
     }
   }
 
-  setInstrumentalVolume(volume) {
-    this.instrumentalVolume = volume;
-    if (this.instrumentalTrack) {
-      this.instrumentalTrack.setVolume(volume);
+  async loadTracks(vocalUrl, instrumentalUrl) {
+    try {
+      // Initialize audio first
+      await this.initializeAudio();
+      
+      // Release any existing tracks first
+      await this.release();
+      
+      console.log('Loading vocal track from:', vocalUrl);
+      // Load vocal track
+      const { sound: vocalSound } = await Audio.Sound.createAsync(
+        { uri: vocalUrl },
+        { shouldPlay: false }
+      );
+      this.vocalSound = vocalSound;
+      
+      console.log('Loading instrumental track from:', instrumentalUrl);
+      // Load instrumental track
+      const { sound: instrumentalSound } = await Audio.Sound.createAsync(
+        { uri: instrumentalUrl },
+        { shouldPlay: false }
+      );
+      this.instrumentalSound = instrumentalSound;
+      
+      this.isLoaded = true;
+      
+      // Set up status update listeners
+      this.vocalSound.setOnPlaybackStatusUpdate(this._onPlaybackStatusUpdate);
+      this.instrumentalSound.setOnPlaybackStatusUpdate(this._onPlaybackStatusUpdate);
+      
+      console.log('Tracks loaded successfully');
+      return true;
+    } catch (error) {
+      console.error('Failed to load audio tracks:', error);
+      await this.release();
+      throw error;
     }
   }
 
-  // Pitch shifting will be implemented using a Web Audio API based solution
-  // or a native module depending on performance requirements
-  setVocalPitch(semitones) {
-    this.vocalPitch = semitones;
-    console.log('Vocal pitch shifting not implemented yet:', semitones);
-    // Implementation will be added based on chosen pitch shifting library
+  _onPlaybackStatusUpdate = (status) => {
+    // Handle playback status updates if needed
+    console.log('Playback status:', status);
   }
 
-  setInstrumentalPitch(semitones) {
-    this.instrumentalPitch = semitones;
-    console.log('Instrumental pitch shifting not implemented yet:', semitones);
-    // Implementation will be added based on chosen pitch shifting library
-  }
-
-  play() {
+  async play() {
     if (!this.isLoaded) {
       console.warn('Cannot play: tracks not loaded');
       return;
     }
     
-    if (this.vocalTrack && this.instrumentalTrack) {
-      // Ensure tracks are synchronized
-      this.vocalTrack.getCurrentTime((vocalTime) => {
-        this.instrumentalTrack.getCurrentTime((instrumentalTime) => {
-          // If tracks are out of sync by more than 50ms, reset them
-          if (Math.abs(vocalTime - instrumentalTime) > 0.05) {
-            this.vocalTrack.setCurrentTime(0);
-            this.instrumentalTrack.setCurrentTime(0);
-          }
-          
-          this.vocalTrack.play((success) => {
-            if (!success) {
-              console.error('Vocal track playback failed');
-            }
-          });
-          
-          this.instrumentalTrack.play((success) => {
-            if (!success) {
-              console.error('Instrumental track playback failed');
-            }
-          });
-        });
-      });
+    try {
+      if (this.vocalSound) {
+        console.log('Playing vocal track');
+        await this.vocalSound.playAsync();
+      }
+      
+      if (this.instrumentalSound) {
+        console.log('Playing instrumental track');
+        await this.instrumentalSound.playAsync();
+      }
+    } catch (error) {
+      console.error('Error playing audio:', error);
     }
   }
 
-  pause() {
-    if (this.vocalTrack) {
-      this.vocalTrack.pause();
-    }
-    if (this.instrumentalTrack) {
-      this.instrumentalTrack.pause();
-    }
-  }
-
-  stop() {
-    if (this.vocalTrack) {
-      this.vocalTrack.stop();
-    }
-    if (this.instrumentalTrack) {
-      this.instrumentalTrack.stop();
+  async pause() {
+    try {
+      if (this.vocalSound) {
+        console.log('Pausing vocal track');
+        await this.vocalSound.pauseAsync();
+      }
+      
+      if (this.instrumentalSound) {
+        console.log('Pausing instrumental track');
+        await this.instrumentalSound.pauseAsync();
+      }
+    } catch (error) {
+      console.error('Error pausing audio:', error);
     }
   }
 
-  getCurrentTime() {
-    if (!this.vocalTrack) return 0;
+  async getCurrentTime() {
+    if (!this.vocalSound) return 0;
     
-    // This is a synchronous version that returns the last known time
-    // For more accurate timing, use the callback version in critical code
-    return this.vocalTrack.getCurrentTime();
+    try {
+      const status = await this.vocalSound.getStatusAsync();
+      return status.positionMillis / 1000; // Convert to seconds
+    } catch (error) {
+      console.error('Error getting current time:', error);
+      return 0;
+    }
   }
 
-  release() {
-    if (this.vocalTrack) {
-      this.vocalTrack.release();
-      this.vocalTrack = null;
+  async release() {
+    try {
+      if (this.vocalSound) {
+        console.log('Releasing vocal track');
+        await this.vocalSound.unloadAsync();
+        this.vocalSound = null;
+      }
+      
+      if (this.instrumentalSound) {
+        console.log('Releasing instrumental track');
+        await this.instrumentalSound.unloadAsync();
+        this.instrumentalSound = null;
+      }
+      
+      this.isLoaded = false;
+    } catch (error) {
+      console.error('Error releasing audio resources:', error);
     }
-    if (this.instrumentalTrack) {
-      this.instrumentalTrack.release();
-      this.instrumentalTrack = null;
-    }
-    this.isLoaded = false;
   }
 } 

@@ -1,67 +1,70 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Button, Slider } from 'react-native-paper';
+import { View, StyleSheet, Text, Alert } from 'react-native';
+import { Button } from 'react-native-paper';
 import { AudioProcessor } from '../../services/audioProcessor';
 
 export const AudioPlayer = ({ vocalTrack, instrumentalTrack, onTimeUpdate }) => {
   const [isPlaying, setIsPlaying] = useState(false);
-  const [vocalVolume, setVocalVolume] = useState(1);
-  const [instrumentalVolume, setInstrumentalVolume] = useState(1);
-  const [vocalPitch, setVocalPitch] = useState(0);
-  const [instrumentalPitch, setInstrumentalPitch] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
   
   const audioProcessor = useRef(new AudioProcessor()).current;
 
   useEffect(() => {
-    if (vocalTrack && instrumentalTrack) {
-      audioProcessor.loadTracks(vocalTrack, instrumentalTrack)
-        .catch(error => {
+    const loadTracks = async () => {
+      if (vocalTrack && instrumentalTrack) {
+        try {
+          setIsLoading(true);
+          setError(null);
+          console.log('Loading tracks:', { vocalTrack, instrumentalTrack });
+          await audioProcessor.loadTracks(vocalTrack, instrumentalTrack);
+          setIsLoading(false);
+        } catch (error) {
           console.error('Failed to load audio tracks:', error);
-        });
-    }
+          setError(`Failed to load audio: ${error.message}`);
+          setIsLoading(false);
+          Alert.alert('Audio Error', `Failed to load audio tracks: ${error.message}`);
+        }
+      }
+    };
+    
+    loadTracks();
+    
     return () => {
       audioProcessor.release();
     };
   }, [vocalTrack, instrumentalTrack]);
 
-  const togglePlayback = () => {
-    if (isPlaying) {
-      audioProcessor.pause();
-    } else {
-      audioProcessor.play();
+  const togglePlayback = async () => {
+    try {
+      if (isPlaying) {
+        console.log('Pausing playback');
+        await audioProcessor.pause();
+      } else {
+        console.log('Starting playback');
+        await audioProcessor.play();
+      }
+      setIsPlaying(!isPlaying);
+    } catch (error) {
+      console.error('Error toggling playback:', error);
+      setError(`Playback error: ${error.message}`);
+      Alert.alert('Playback Error', `Failed to ${isPlaying ? 'pause' : 'play'} audio: ${error.message}`);
     }
-    setIsPlaying(!isPlaying);
-  };
-
-  const handleVocalVolumeChange = (value) => {
-    setVocalVolume(value);
-    audioProcessor.setVocalVolume(value);
-  };
-
-  const handleInstrumentalVolumeChange = (value) => {
-    setInstrumentalVolume(value);
-    audioProcessor.setInstrumentalVolume(value);
-  };
-
-  const handleVocalPitchChange = (semitones) => {
-    setVocalPitch(semitones);
-    audioProcessor.setVocalPitch(semitones);
-  };
-
-  const handleInstrumentalPitchChange = (semitones) => {
-    setInstrumentalPitch(semitones);
-    audioProcessor.setInstrumentalPitch(semitones);
   };
 
   useEffect(() => {
     let timeUpdateInterval;
     if (isPlaying) {
-      timeUpdateInterval = setInterval(() => {
-        const time = audioProcessor.getCurrentTime();
-        setCurrentTime(time);
-        if (onTimeUpdate) {
-          onTimeUpdate(time);
+      timeUpdateInterval = setInterval(async () => {
+        try {
+          const time = await audioProcessor.getCurrentTime();
+          setCurrentTime(time);
+          if (onTimeUpdate) {
+            onTimeUpdate(time);
+          }
+        } catch (error) {
+          console.error('Error getting current time:', error);
         }
       }, 100);
     }
@@ -72,52 +75,43 @@ export const AudioPlayer = ({ vocalTrack, instrumentalTrack, onTimeUpdate }) => 
     };
   }, [isPlaying, onTimeUpdate]);
 
+  if (isLoading) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.statusText}>Loading audio tracks...</Text>
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.errorText}>{error}</Text>
+        <Button 
+          mode="contained" 
+          onPress={() => setError(null)}
+          style={styles.button}
+        >
+          Dismiss
+        </Button>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
+      <Text style={styles.trackInfo}>
+        Current Time: {Math.floor(currentTime)} seconds
+      </Text>
+      
       <Button 
         mode="contained" 
         onPress={togglePlayback}
+        style={styles.button}
+        disabled={isLoading}
       >
         {isPlaying ? 'Pause' : 'Play'}
       </Button>
-
-      <View style={styles.controlSection}>
-        <View style={styles.controlGroup}>
-          <Slider
-            value={vocalVolume}
-            onValueChange={handleVocalVolumeChange}
-            minimumValue={0}
-            maximumValue={1}
-            style={styles.slider}
-          />
-          <Slider
-            value={vocalPitch}
-            onValueChange={handleVocalPitchChange}
-            minimumValue={-12}
-            maximumValue={12}
-            step={1}
-            style={styles.slider}
-          />
-        </View>
-
-        <View style={styles.controlGroup}>
-          <Slider
-            value={instrumentalVolume}
-            onValueChange={handleInstrumentalVolumeChange}
-            minimumValue={0}
-            maximumValue={1}
-            style={styles.slider}
-          />
-          <Slider
-            value={instrumentalPitch}
-            onValueChange={handleInstrumentalPitchChange}
-            minimumValue={-12}
-            maximumValue={12}
-            step={1}
-            style={styles.slider}
-          />
-        </View>
-      </View>
     </View>
   );
 };
@@ -125,14 +119,26 @@ export const AudioPlayer = ({ vocalTrack, instrumentalTrack, onTimeUpdate }) => 
 const styles = StyleSheet.create({
   container: {
     padding: 16,
+    alignItems: 'center',
   },
-  controlSection: {
-    marginTop: 16,
+  button: {
+    marginVertical: 16,
+    width: '80%',
   },
-  controlGroup: {
-    marginVertical: 8,
+  trackInfo: {
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
   },
-  slider: {
-    marginVertical: 8,
+  statusText: {
+    fontSize: 16,
+    marginBottom: 8,
+    textAlign: 'center',
   },
+  errorText: {
+    color: 'red',
+    fontSize: 16,
+    marginBottom: 16,
+    textAlign: 'center',
+  }
 }); 

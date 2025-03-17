@@ -1,85 +1,199 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
-import { Button, Text, ActivityIndicator } from 'react-native-paper';
+import { View, StyleSheet, Text, Alert } from 'react-native';
+import { Button, ProgressBar, ActivityIndicator } from 'react-native-paper';
 import * as DocumentPicker from 'expo-document-picker';
-import { api } from '../../services/api';
+import { uploadAudio, checkProcessingStatus, getProcessedTracks } from '../../services/api';
 
 export const FileUpload = ({ onUploadComplete }) => {
-  const [uploading, setUploading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
 
   const pickAudioFile = async () => {
     try {
+      console.log('Opening document picker...');
+      
+      // Use DocumentPicker
       const result = await DocumentPicker.getDocumentAsync({
         type: 'audio/*',
-        copyToCacheDirectory: true
+        copyToCacheDirectory: true,
       });
+      
+      console.log('Document picker result:', JSON.stringify(result, null, 2));
 
+      // Handle both old and new DocumentPicker response formats
+      let file;
+      
+      // Check if it's the old format (type: 'success' or 'cancel')
       if (result.type === 'success') {
-        await uploadFile(result);
+        // Old format - result itself is the file
+        file = {
+          uri: result.uri,
+          name: result.name,
+          mimeType: result.mimeType,
+          size: result.size
+        };
+      } else if (result.type === 'cancel') {
+        console.log('User cancelled file picker');
+        return;
+      } else if (result.canceled === true) {
+        // New format - canceled property
+        console.log('User cancelled file picker');
+        return;
+      } else if (result.assets && result.assets.length > 0) {
+        // New format - assets array
+        file = result.assets[0];
+      } else {
+        console.error('Unrecognized document picker result format:', result);
+        setError('Failed to get file. Please try again.');
+        return;
       }
+      
+      console.log('Selected file details:', JSON.stringify(file, null, 2));
+      
+      // Validate file
+      if (!file || !file.uri) {
+        console.error('Invalid file object:', file);
+        setError('Invalid file selected. Please try again.');
+        return;
+      }
+      
+      // Ensure file has all required properties
+      const fileToUpload = {
+        uri: file.uri,
+        name: file.name || 'audio.mp3',
+        mimeType: file.mimeType || 'audio/mpeg',
+        size: file.size || 0
+      };
+      
+      console.log('Prepared file for upload:', fileToUpload);
+      await uploadFile(fileToUpload);
     } catch (err) {
-      setError('Error selecting file');
-      console.error('File selection error:', err);
+      console.error('Error picking document:', err);
+      setError(`Error selecting file: ${err.message}`);
+      Alert.alert('Error', `Failed to select file: ${err.message}`);
     }
   };
 
   const uploadFile = async (file) => {
-    setUploading(true);
-    setError(null);
-    setUploadProgress(0);
-
     try {
-      const response = await api.uploadAudio(file);
-      
-      // Poll for processing status
-      const checkStatus = async (jobId) => {
-        const status = await api.checkProcessingStatus(jobId);
-        if (status.state === 'completed') {
-          const tracks = await api.getProcessedTracks(jobId);
-          onUploadComplete(tracks);
-        } else if (status.state === 'processing') {
-          setUploadProgress(status.progress || uploadProgress);
-          setTimeout(() => checkStatus(jobId), 1000);
-        } else {
-          throw new Error('Processing failed');
-        }
-      };
+      setIsUploading(true);
+      setError(null);
+      setUploadProgress(0);
 
-      await checkStatus(response.jobId);
+      // Simulate upload progress
+      const progressInterval = setInterval(() => {
+        setUploadProgress(prev => {
+          const newProgress = prev + 0.05;
+          return newProgress > 0.9 ? 0.9 : newProgress;
+        });
+      }, 500);
+
+      // Upload the file
+      console.log('Uploading file to server...', file);
+      const uploadResponse = await uploadAudio(file);
+      console.log('Upload response:', uploadResponse);
+      
+      clearInterval(progressInterval);
+      setUploadProgress(1);
+      
+      setTimeout(() => {
+        setIsUploading(false);
+        setIsProcessing(true);
+
+        // Poll for processing status
+        if (uploadResponse && uploadResponse.id) {
+          pollProcessingStatus(uploadResponse.id);
+        } else {
+          throw new Error('Invalid response from server');
+        }
+      }, 500);
     } catch (err) {
-      setError('Upload failed. Please try again.');
-      console.error('Upload error:', err);
-    } finally {
-      setUploading(false);
+      console.error('Error uploading file:', err);
+      setIsUploading(false);
+      setIsProcessing(false);
+      setError(`Error uploading file: ${err.message}`);
+      Alert.alert('Upload Error', `Failed to upload file: ${err.message}`);
+    }
+  };
+
+  const pollProcessingStatus = async (fileId) => {
+    try {
+      console.log('Starting to poll for processing status...');
+      let isComplete = false;
+      let attempts = 0;
+      const maxAttempts = 30; // Maximum number of polling attempts
+      
+      while (!isComplete && attempts < maxAttempts) {
+        attempts++;
+        console.log(`Polling attempt ${attempts}/${maxAttempts}`);
+        
+        // Wait for 2 seconds between polls
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const statusResponse = await checkProcessingStatus(fileId);
+        console.log('Status response:', statusResponse);
+        
+        if (statusResponse.status === 'completed') {
+          isComplete = true;
+          
+          // Get the processed tracks
+          console.log('Processing completed, getting tracks...');
+          const tracksResponse = await getProcessedTracks(fileId);
+          console.log('Tracks response:', tracksResponse);
+          
+          setIsProcessing(false);
+          
+          // Call the callback with the processed tracks
+          if (onUploadComplete && tracksResponse) {
+            onUploadComplete(tracksResponse);
+          } else {
+            throw new Error('Invalid tracks response from server');
+          }
+        } else if (statusResponse.status === 'failed') {
+          throw new Error('Processing failed on the server');
+        }
+        // else continue polling
+      }
+      
+      if (!isComplete) {
+        throw new Error('Processing timed out');
+      }
+    } catch (err) {
+      console.error('Error checking processing status:', err);
+      setIsProcessing(false);
+      setError(`Error processing file: ${err.message}`);
+      Alert.alert('Processing Error', `Failed to process file: ${err.message}`);
     }
   };
 
   return (
     <View style={styles.container}>
-      <Button
-        mode="contained"
-        onPress={pickAudioFile}
-        disabled={uploading}
-        style={styles.button}
-      >
-        Select Audio File
-      </Button>
-
-      {uploading && (
+      {error && <Text style={styles.errorText}>{error}</Text>}
+      
+      {isUploading && (
         <View style={styles.progressContainer}>
-          <ActivityIndicator animating={true} />
-          <Text style={styles.progressText}>
-            Processing: {Math.round(uploadProgress * 100)}%
-          </Text>
+          <Text style={styles.statusText}>Uploading...</Text>
+          <ProgressBar progress={uploadProgress} color="#6200ee" style={styles.progressBar} />
         </View>
       )}
-
-      {error && (
-        <Text style={styles.errorText}>
-          {error}
-        </Text>
+      
+      {isProcessing && (
+        <View style={styles.processingContainer}>
+          <Text style={styles.statusText}>Processing audio...</Text>
+          <ActivityIndicator animating={true} color="#6200ee" size="large" />
+        </View>
+      )}
+      
+      {!isUploading && !isProcessing && (
+        <Button
+          mode="contained"
+          onPress={pickAudioFile}
+          style={styles.button}
+        >
+          Select Audio File
+        </Button>
       )}
     </View>
   );
@@ -87,20 +201,34 @@ export const FileUpload = ({ onUploadComplete }) => {
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
+    padding: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   button: {
-    marginVertical: 8,
+    marginTop: 20,
+    width: '80%',
   },
   progressContainer: {
-    alignItems: 'center',
-    marginTop: 16,
+    width: '100%',
+    marginVertical: 20,
   },
-  progressText: {
-    marginTop: 8,
+  processingContainer: {
+    marginVertical: 20,
+    alignItems: 'center',
+  },
+  statusText: {
+    marginBottom: 10,
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  progressBar: {
+    height: 10,
+    borderRadius: 5,
   },
   errorText: {
     color: 'red',
-    marginTop: 8,
+    marginBottom: 10,
+    textAlign: 'center',
   },
 }); 

@@ -11,6 +11,8 @@ import aiohttp
 import redis
 from dotenv import load_dotenv
 import openai  # Import only the openai module
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.openapi.utils import get_openapi
 
 load_dotenv()
 
@@ -211,6 +213,22 @@ async def get_tracks(job_id: str):
         "instrumental": f"/output/{job_id}/accompaniment.wav",
         "lyrics": json.load(open(os.path.join(job_output_dir, "lyrics.json")))
     }
+
+@app.get("/api/docs", include_in_schema=False)
+async def get_documentation():
+    return get_swagger_ui_html(
+        openapi_url="/api/openapi.json",
+        title="SingWithMe API"
+    )
+
+@app.get("/api/openapi.json", include_in_schema=False)
+async def get_openapi_schema():
+    return get_openapi(
+        title="SingWithMe API",
+        version="1.0.0",
+        description="API for audio processing, vocal separation, and lyrics transcription",
+        routes=app.routes,
+    )
 
 if __name__ == "__main__":
     import uvicorn
