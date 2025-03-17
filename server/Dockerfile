@@ -14,8 +14,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Create necessary directories with proper permissions
-RUN mkdir -p /app/uploads /app/outputs \
-    && chmod 777 /app/uploads /app/outputs
+RUN mkdir -p /app/uploads /app/outputs /app/static \
+    && chmod 777 /app/uploads /app/outputs /app/static
 
 # Copy application code
 COPY . .

@@ -16,8 +16,15 @@ from fastapi.openapi.utils import get_openapi
 import asyncio
 import subprocess
 import sys
+import socketio
+from fastapi.staticfiles import StaticFiles
+import logging
 
 load_dotenv()
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Check if ffmpeg is available for audio conversion
 try:
@@ -28,6 +35,14 @@ except Exception as e:
     print("[WARNING] Please install ffmpeg for better audio compatibility with Whisper API")
 
 app = FastAPI()
+
+# Initialize Socket.IO
+sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
+socket_app = socketio.ASGIApp(sio, app)
+
+# Mount static files if directory exists
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Configure CORS
 app.add_middleware(
@@ -167,6 +182,7 @@ class ProcessingStatus(BaseModel):
     state: str
     progress: Optional[float] = None
     error: Optional[str] = None
+    message: Optional[str] = None
 
 # Use Redis for job storage
 def get_job_status(job_id: str) -> Optional[ProcessingStatus]:
@@ -247,6 +263,7 @@ async def process_audio(job_id: str, input_path: str):
 
             # Send request to Spleeter service
             try:
+                # Send the actual request
                 async with session.post(f"{SPLEETER_API_URL}/separate", data=data) as response:
                     if response.status != 200:
                         error_text = await response.text()
@@ -255,6 +272,9 @@ async def process_audio(job_id: str, input_path: str):
                     # Parse the JSON response from Spleeter
                     response_data = await response.json()
                     print(f"[DEBUG] Spleeter response: {response_data}")
+                    
+                    # Update progress
+                    set_job_status(job_id, ProcessingStatus(state="processing", progress=0.5))
                     
                     # Get the separation ID and file URLs
                     separation_id = response_data.get('separation_id')
@@ -319,10 +339,12 @@ async def process_audio(job_id: str, input_path: str):
                     else:
                         print(f"[WARNING] Accompaniment URL not found in Spleeter response")
                     
-            except aiohttp.ClientError as e:
-                raise Exception(f"Connection to Spleeter service failed: {str(e)}")
+            except Exception as e:
+                print(f"[DEBUG] Error: {str(e)}")
+                set_job_status(job_id, ProcessingStatus(state="failed", error=str(e)))
+                raise e
 
-        set_job_status(job_id, ProcessingStatus(state="processing", progress=0.5))
+        set_job_status(job_id, ProcessingStatus(state="processing", progress=0.7))
 
         # Process vocals with Whisper API
         try:
@@ -407,7 +429,9 @@ async def upload_file(file: UploadFile, background_tasks: BackgroundTasks):
     await save_upload_file(file, input_path)
     set_job_status(job_id, ProcessingStatus(state="uploaded"))
     
-    background_tasks.add_task(process_audio, job_id, input_path)
+    # Create an async task instead of using background_tasks
+    # This allows proper handling of WebSocket messages during processing
+    asyncio.create_task(process_audio(job_id, input_path))
     
     return {"jobId": job_id}
 
@@ -439,6 +463,9 @@ async def get_tracks(job_id: str):
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
     try:
+        # Simple connection confirmation
+        await websocket.send_json({"event": "connected"})
+        
         while True:
             # Wait for messages from the client
             data = await websocket.receive_json()
@@ -495,6 +522,40 @@ async def get_openapi_schema():
         routes=app.routes,
     )
 
+# Socket.IO event handlers
+@sio.event
+async def connect(sid, environ):
+    print(f"Client connected: {sid}")
+    await sio.emit('connected', {'message': 'Connected to server'}, room=sid)
+
+@sio.event
+async def disconnect(sid):
+    print(f"Client disconnected: {sid}")
+
+@sio.event
+async def subscribe(sid, data):
+    job_id = data.get('jobId')
+    if job_id:
+        print(f"Client {sid} subscribed to job {job_id}")
+        sio.enter_room(sid, job_id)
+        
+        # Send current status immediately if available
+        status = get_job_status(job_id)
+        if status:
+            await sio.emit('status_update', {
+                'jobId': job_id,
+                'status': json.loads(status.json())
+            }, room=sid)
+
+# Update the broadcast_status function to use Socket.IO
+async def broadcast_status(job_id: str, status: ProcessingStatus):
+    """Broadcast status update to all subscribers of a job"""
+    print(f"Broadcasting status for job {job_id}: {status}")
+    await sio.emit('status_update', {
+        'jobId': job_id,
+        'status': json.loads(status.json())
+    }, room=job_id)
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=5000) 
+    uvicorn.run(socket_app, host="0.0.0.0", port=5000) 

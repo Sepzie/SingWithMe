@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, Alert } from 'react-native';
-import { Button, ProgressBar, ActivityIndicator } from 'react-native-paper';
+import { Button, ProgressBar, ActivityIndicator, Surface } from 'react-native-paper';
 import * as DocumentPicker from 'expo-document-picker';
 import { uploadAudio, checkProcessingStatus, getProcessedTracks } from '../../services/api';
 import webSocketService from '../../services/websocket';
@@ -10,15 +10,35 @@ export const FileUpload = ({ onUploadComplete }) => {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState(null);
+  const [processingStatus, setProcessingStatus] = useState(null);
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
   const jobIdRef = useRef(null);
   
   // Cleanup WebSocket on unmount
   useEffect(() => {
     return () => {
       if (jobIdRef.current) {
-        // Clean up WebSocket connection when component unmounts
         webSocketService.disconnect();
       }
+    };
+  }, []);
+
+  // Set up WebSocket connection status listener
+  useEffect(() => {
+    const handleConnect = () => {
+      setIsWebSocketConnected(true);
+    };
+    
+    const handleDisconnect = () => {
+      setIsWebSocketConnected(false);
+    };
+
+    webSocketService.addEventListener('connect', handleConnect);
+    webSocketService.addEventListener('disconnect', handleDisconnect);
+
+    return () => {
+      webSocketService.removeEventListener('connect', handleConnect);
+      webSocketService.removeEventListener('disconnect', handleDisconnect);
     };
   }, []);
 
@@ -138,36 +158,37 @@ export const FileUpload = ({ onUploadComplete }) => {
     const fallbackTimer = setTimeout(() => {
       console.log('WebSocket not responding, falling back to polling');
       pollProcessingStatus(jobId);
-    }, 10000); // 10 second timeout
+    }, 10000);
     
     // Make sure WebSocket is connected
     if (!webSocketService.isConnected()) {
       webSocketService.connect();
     }
     
-    // Listen only for processing complete events
+    // Listen for status updates
+    webSocketService.addEventListener('status_update', (data) => {
+      if (data.jobId === jobId) {
+        setProcessingStatus(data.status);
+      }
+    });
+    
+    // Listen for processing complete events
     webSocketService.addEventListener('processing_complete', async (data) => {
-      // Check if this is for our job
       if (data.jobId === jobId) {
         console.log('WebSocket: Processing complete!', data);
         clearTimeout(fallbackTimer);
         
         try {
-          // Get the processed tracks
-          console.log('Processing completed, getting tracks...');
           const tracksResponse = await getProcessedTracks(jobId);
-          console.log('Tracks response:', tracksResponse);
-          
           setIsProcessing(false);
+          setProcessingStatus(null);
           
-          // Call the callback with the processed tracks
           if (onUploadComplete && tracksResponse) {
             onUploadComplete(tracksResponse);
           } else {
             throw new Error('Invalid tracks response from server');
           }
           
-          // Clean up WebSocket
           webSocketService.disconnect();
           jobIdRef.current = null;
         } catch (err) {
@@ -178,7 +199,6 @@ export const FileUpload = ({ onUploadComplete }) => {
     
     // Listen for error events
     webSocketService.addEventListener('processing_error', (data) => {
-      // Check if this is for our job
       if (data.jobId === jobId) {
         console.error('WebSocket: Processing error:', data);
         clearTimeout(fallbackTimer);
@@ -263,11 +283,34 @@ export const FileUpload = ({ onUploadComplete }) => {
       )}
       
       {isProcessing && (
-        <View style={styles.processingContainer}>
-          <Text style={styles.statusText}>Processing audio...</Text>
-          <ActivityIndicator animating={true} color="#6200ee" size="large" />
-          <Text style={styles.statusText}>Waiting for completion via WebSocket...</Text>
-        </View>
+        <Surface style={styles.processingContainer}>
+          <View style={styles.statusHeader}>
+            <ActivityIndicator animating={true} color="#6200ee" size="small" />
+            <Text style={styles.statusText}>
+              {processingStatus?.state === 'processing' 
+                ? `Processing audio... ${Math.round((processingStatus.progress || 0) * 100)}%`
+                : 'Processing audio...'}
+            </Text>
+          </View>
+          
+          <View style={styles.websocketStatus}>
+            <View style={[
+              styles.connectionIndicator,
+              { backgroundColor: isWebSocketConnected ? '#4CAF50' : '#FFA000' }
+            ]} />
+            <Text style={styles.websocketText}>
+              {isWebSocketConnected ? 'Connected' : 'Connecting...'}
+            </Text>
+          </View>
+
+          {processingStatus?.progress && (
+            <ProgressBar 
+              progress={processingStatus.progress} 
+              color="#6200ee" 
+              style={styles.progressBar} 
+            />
+          )}
+        </Surface>
       )}
       
       {!isUploading && !isProcessing && (
@@ -298,17 +341,41 @@ const styles = StyleSheet.create({
     marginVertical: 20,
   },
   processingContainer: {
+    width: '100%',
+    padding: 20,
     marginVertical: 20,
     alignItems: 'center',
+    elevation: 2,
+  },
+  statusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  websocketStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  connectionIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+  websocketText: {
+    fontSize: 14,
+    color: '#666',
   },
   statusText: {
-    marginBottom: 10,
+    marginLeft: 10,
     fontSize: 16,
     textAlign: 'center',
   },
   progressBar: {
     height: 10,
     borderRadius: 5,
+    width: '100%',
   },
   errorText: {
     color: 'red',
