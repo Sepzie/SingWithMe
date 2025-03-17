@@ -1,6 +1,5 @@
 import axios from 'axios';
 import { Platform } from 'react-native';
-import webSocketService from './websocket';
 import { API_BASE_URL } from '../config/apiConfig';
 
 // Log the API URL being used
@@ -44,20 +43,8 @@ export const uploadAudio = async (file) => {
       throw new Error('Invalid response from server: missing jobId');
     }
     
-    // Ensure WebSocket connection is established
-    if (!webSocketService.isConnected()) {
-      console.log('Connecting to WebSocket for real-time updates');
-      webSocketService.connect();
-    }
-    
-    // Subscribe to job updates via WebSocket
-    const jobId = response.data.jobId;
-    if (webSocketService.isConnected()) {
-      webSocketService.subscribeToJob(jobId);
-    }
-    
     // Return an object with id property to match the expected format
-    return { id: jobId };
+    return { id: response.data.jobId };
   } catch (error) {
     console.error('Error uploading audio:', error.message);
     if (error.response) {
@@ -124,61 +111,4 @@ export const getProcessedTracks = async (fileId) => {
     }
     throw error;
   }
-};
-
-// Subscribe to real-time updates for a job
-export const subscribeToJobUpdates = (jobId, callbacks) => {
-  if (!jobId) {
-    console.error('Cannot subscribe to updates: Invalid job ID');
-    return { unsubscribe: () => {} };
-  }
-  
-  // Ensure WebSocket connection is established
-  if (!webSocketService.isConnected()) {
-    webSocketService.connect();
-  }
-  
-  const { onStatusUpdate, onComplete, onError } = callbacks;
-  
-  // Add event listeners for the job
-  const statusListener = onStatusUpdate ? 
-    webSocketService.addEventListener('status_update', data => {
-      if (data.jobId === jobId) {
-        onStatusUpdate(data);
-      }
-    }) : null;
-  
-  const completeListener = onComplete ? 
-    webSocketService.addEventListener('processing_complete', data => {
-      if (data.jobId === jobId) {
-        onComplete(data);
-      }
-    }) : null;
-  
-  const errorListener = onError ? 
-    webSocketService.addEventListener('processing_error', data => {
-      if (data.jobId === jobId) {
-        onError(data);
-      }
-    }) : null;
-  
-  // Subscribe to the job
-  if (webSocketService.isConnected()) {
-    webSocketService.subscribeToJob(jobId);
-  }
-  
-  // Return unsubscribe function
-  return {
-    unsubscribe: () => {
-      // Remove event listeners
-      if (statusListener) statusListener();
-      if (completeListener) completeListener();
-      if (errorListener) errorListener();
-      
-      // Unsubscribe from job
-      if (webSocketService.isConnected()) {
-        webSocketService.unsubscribeFromJob(jobId);
-      }
-    }
-  };
 }; 

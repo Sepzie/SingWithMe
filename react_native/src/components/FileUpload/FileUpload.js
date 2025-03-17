@@ -2,22 +2,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, Alert } from 'react-native';
 import { Button, ProgressBar, ActivityIndicator } from 'react-native-paper';
 import * as DocumentPicker from 'expo-document-picker';
-import { uploadAudio, checkProcessingStatus, getProcessedTracks, subscribeToJobUpdates } from '../../services/api';
+import { uploadAudio, checkProcessingStatus, getProcessedTracks } from '../../services/api';
+import webSocketService from '../../services/websocket';
 
 export const FileUpload = ({ onUploadComplete }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingProgress, setProcessingProgress] = useState(0);
   const [error, setError] = useState(null);
-  const subscriptionRef = useRef(null);
-
-  // Cleanup subscription on unmount
+  const jobIdRef = useRef(null);
+  
+  // Cleanup WebSocket on unmount
   useEffect(() => {
     return () => {
-      if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
+      if (jobIdRef.current) {
+        // Clean up WebSocket connection when component unmounts
+        webSocketService.disconnect();
       }
     };
   }, []);
@@ -113,11 +113,11 @@ export const FileUpload = ({ onUploadComplete }) => {
       setTimeout(() => {
         setIsUploading(false);
         setIsProcessing(true);
-        setProcessingProgress(0.1); // Start at 10%
 
-        // If we have a job ID, subscribe to real-time updates and start monitoring
+        // If we have a job ID, start monitoring with WebSocket
         if (uploadResponse && uploadResponse.id) {
-          monitorProcessingWithWebSocket(uploadResponse.id);
+          jobIdRef.current = uploadResponse.id;
+          setupSimpleWebSocketListener(uploadResponse.id);
         } else {
           throw new Error('Invalid response from server');
         }
@@ -131,40 +131,26 @@ export const FileUpload = ({ onUploadComplete }) => {
     }
   };
 
-  const monitorProcessingWithWebSocket = (jobId) => {
-    console.log('Starting to monitor processing via WebSocket for job:', jobId);
+  const setupSimpleWebSocketListener = (jobId) => {
+    console.log('Setting up simple WebSocket listener for job:', jobId);
     
-    // Create a fallback mechanism in case WebSocket fails
+    // Set up a fallback timer to switch to polling if WebSocket fails
     const fallbackTimer = setTimeout(() => {
-      console.log('WebSocket monitoring timed out, falling back to polling');
-      
-      // Cleanup WebSocket subscription if it exists
-      if (subscriptionRef.current) {
-        subscriptionRef.current.unsubscribe();
-        subscriptionRef.current = null;
-      }
-      
-      // Fall back to polling
+      console.log('WebSocket not responding, falling back to polling');
       pollProcessingStatus(jobId);
-    }, 10000); // 10 seconds timeout
+    }, 10000); // 10 second timeout
     
-    // Subscribe to real-time updates
-    subscriptionRef.current = subscribeToJobUpdates(jobId, {
-      onStatusUpdate: (data) => {
-        console.log('WebSocket status update:', data);
-        clearTimeout(fallbackTimer); // Clear fallback timer on successful update
-        
-        setProcessingProgress(data.progress || 0.1);
-        
-        if (data.state === 'failed') {
-          handleProcessingError(new Error(data.error || 'Processing failed'));
-        }
-      },
-      onComplete: async (data) => {
-        console.log('WebSocket processing complete:', data);
-        clearTimeout(fallbackTimer); // Clear fallback timer on completion
-        
-        setProcessingProgress(1.0);
+    // Make sure WebSocket is connected
+    if (!webSocketService.isConnected()) {
+      webSocketService.connect();
+    }
+    
+    // Listen only for processing complete events
+    webSocketService.addEventListener('processing_complete', async (data) => {
+      // Check if this is for our job
+      if (data.jobId === jobId) {
+        console.log('WebSocket: Processing complete!', data);
+        clearTimeout(fallbackTimer);
         
         try {
           // Get the processed tracks
@@ -181,22 +167,29 @@ export const FileUpload = ({ onUploadComplete }) => {
             throw new Error('Invalid tracks response from server');
           }
           
-          // Cleanup subscription
-          if (subscriptionRef.current) {
-            subscriptionRef.current.unsubscribe();
-            subscriptionRef.current = null;
-          }
+          // Clean up WebSocket
+          webSocketService.disconnect();
+          jobIdRef.current = null;
         } catch (err) {
           handleProcessingError(err);
         }
-      },
-      onError: (data) => {
-        console.error('WebSocket processing error:', data);
-        clearTimeout(fallbackTimer); // Clear fallback timer on error
-        
+      }
+    });
+    
+    // Listen for error events
+    webSocketService.addEventListener('processing_error', (data) => {
+      // Check if this is for our job
+      if (data.jobId === jobId) {
+        console.error('WebSocket: Processing error:', data);
+        clearTimeout(fallbackTimer);
         handleProcessingError(new Error(data.error || 'Processing failed'));
       }
     });
+    
+    // Subscribe to job updates
+    if (webSocketService.isConnected()) {
+      webSocketService.subscribeToJob(jobId);
+    }
   };
 
   const handleProcessingError = (err) => {
@@ -205,14 +198,12 @@ export const FileUpload = ({ onUploadComplete }) => {
     setError(`Error processing file: ${err.message}`);
     Alert.alert('Processing Error', `Failed to process file: ${err.message}`);
     
-    // Cleanup subscription
-    if (subscriptionRef.current) {
-      subscriptionRef.current.unsubscribe();
-      subscriptionRef.current = null;
-    }
+    // Clean up WebSocket
+    webSocketService.disconnect();
+    jobIdRef.current = null;
   };
 
-  // Fallback polling method in case WebSocket fails
+  // Fallback polling method (in case WebSocket fails)
   const pollProcessingStatus = async (fileId) => {
     try {
       console.log('Starting to poll for processing status...');
@@ -274,8 +265,8 @@ export const FileUpload = ({ onUploadComplete }) => {
       {isProcessing && (
         <View style={styles.processingContainer}>
           <Text style={styles.statusText}>Processing audio...</Text>
-          <Text style={styles.progressText}>{Math.round(processingProgress * 100)}%</Text>
-          <ProgressBar progress={processingProgress} color="#6200ee" style={styles.progressBar} />
+          <ActivityIndicator animating={true} color="#6200ee" size="large" />
+          <Text style={styles.statusText}>Waiting for completion via WebSocket...</Text>
         </View>
       )}
       
@@ -309,22 +300,15 @@ const styles = StyleSheet.create({
   processingContainer: {
     marginVertical: 20,
     alignItems: 'center',
-    width: '100%',
   },
   statusText: {
     marginBottom: 10,
     fontSize: 16,
     textAlign: 'center',
   },
-  progressText: {
-    marginBottom: 5,
-    fontSize: 14,
-    color: '#666',
-  },
   progressBar: {
     height: 10,
     borderRadius: 5,
-    width: '100%',
   },
   errorText: {
     color: 'red',

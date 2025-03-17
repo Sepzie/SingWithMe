@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   api:
@@ -8,6 +7,7 @@ services:
     volumes:
       - ./server:/app  # Mount for development
     environment:
+      - HOST=0.0.0.0
       - OPEN_AI_API_KEY=${OPEN_AI_API_KEY}
       - SPLEETER_API_URL=http://spleeter:8000
       - REDIS_URL=redis://redis:6379

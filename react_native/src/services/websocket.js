@@ -1,6 +1,6 @@
 import { io } from 'socket.io-client';
-import { Platform } from 'react-native';
 import { WEBSOCKET_URL } from '../config/apiConfig';
+import { Platform } from 'react-native';
 
 class WebSocketService {
   constructor() {
@@ -8,8 +8,6 @@ class WebSocketService {
     this.listeners = {};
     this.baseUrl = WEBSOCKET_URL;
     this.connected = false;
-    this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
   }
 
   connect() {
@@ -24,71 +22,62 @@ class WebSocketService {
       transports: ['websocket'],
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionAttempts: this.maxReconnectAttempts,
-      path: '/ws/socket.io',  // Updated path to match server
+      reconnectionAttempts: 3,
     });
 
     // Setup event handlers
     this.socket.on('connect', () => {
       console.log('WebSocket: Connected');
       this.connected = true;
-      this.reconnectAttempts = 0;
-      
-      // Notify any listeners of the connection event
       this._notifyListeners('connect', null);
     });
 
     this.socket.on('disconnect', (reason) => {
       console.log(`WebSocket: Disconnected due to ${reason}`);
       this.connected = false;
-      
-      // Notify any listeners of the disconnection event
       this._notifyListeners('disconnect', reason);
     });
 
     this.socket.on('connect_error', (error) => {
       console.error('WebSocket: Connection error', error);
-      this.reconnectAttempts++;
-      
-      // Notify any listeners of the connection error
       this._notifyListeners('error', error);
-      
-      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.log('WebSocket: Max reconnect attempts reached, giving up');
-        this.socket.disconnect();
-      }
     });
 
-    // Listen for all messages and route them based on event type
+    // Listen for all incoming messages
     this.socket.on('message', (data) => {
-      try {
-        // Parse message if it's a string
-        const messageData = typeof data === 'string' ? JSON.parse(data) : data;
-        const event = messageData.event;
-        
-        if (event) {
-          console.log(`WebSocket: Received event '${event}'`, messageData);
-          this._notifyListeners(event, messageData);
-          
-          // Special handling for status updates
-          if (event === 'status_update') {
-            this._notifyListeners('status_update', messageData);
-          } 
-          // Special handling for processing completion
-          else if (event === 'processing_complete') {
-            this._notifyListeners('processing_complete', messageData);
-          } 
-          // Special handling for processing errors
-          else if (event === 'processing_error') {
-            this._notifyListeners('processing_error', messageData);
-          }
-        } else {
-          console.warn('WebSocket: Received message with no event type', messageData);
-        }
-      } catch (err) {
-        console.error('WebSocket: Error processing message', err, data);
-      }
+      this._handleMessage(data);
     });
+
+    // Listen for specific event types
+    this.socket.on('status_update', (data) => {
+      console.log('WebSocket: Status update received', data);
+      this._notifyListeners('status_update', data);
+    });
+
+    this.socket.on('processing_complete', (data) => {
+      console.log('WebSocket: Processing complete received', data);
+      this._notifyListeners('processing_complete', data);
+    });
+
+    this.socket.on('processing_error', (data) => {
+      console.log('WebSocket: Processing error received', data);
+      this._notifyListeners('processing_error', data);
+    });
+  }
+
+  _handleMessage(data) {
+    try {
+      // Parse message if it's a string
+      const messageData = typeof data === 'string' ? JSON.parse(data) : data;
+      const eventType = messageData.event || messageData.type;
+      
+      if (eventType) {
+        console.log(`WebSocket: Received event '${eventType}'`, messageData);
+        this._notifyListeners(eventType, messageData);
+      }
+    } catch (err) {
+      console.error('WebSocket: Error processing message', err, data);
+    }
   }
 
   disconnect() {
@@ -97,6 +86,8 @@ class WebSocketService {
       this.socket.disconnect();
       this.socket = null;
       this.connected = false;
+      // Clear all listeners when disconnecting
+      this.listeners = {};
     }
   }
 
@@ -108,27 +99,7 @@ class WebSocketService {
     }
 
     console.log(`WebSocket: Subscribing to job ${jobId}`);
-    this.socket.emit('message', JSON.stringify({
-      type: 'subscribe',
-      jobId: jobId,
-      timestamp: new Date().toISOString()
-    }));
-    return true;
-  }
-
-  // Unsubscribe from job updates
-  unsubscribeFromJob(jobId) {
-    if (!this.socket || !this.connected) {
-      console.error('WebSocket: Cannot unsubscribe, not connected');
-      return false;
-    }
-
-    console.log(`WebSocket: Unsubscribing from job ${jobId}`);
-    this.socket.emit('message', JSON.stringify({
-      type: 'unsubscribe',
-      jobId: jobId,
-      timestamp: new Date().toISOString()
-    }));
+    this.socket.emit('subscribe', { jobId });
     return true;
   }
 
