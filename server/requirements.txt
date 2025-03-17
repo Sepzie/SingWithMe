@@ -1,0 +1,9 @@
+fastapi==0.109.2
+uvicorn==0.27.1
+python-multipart==0.0.9
+numpy>=1.16.0,<1.19.0
+spleeter==2.1.0
+protobuf>=3.20.3,<5.0.0dev
+tensorflow==2.12.0
+aiofiles==23.2.1
+pydantic==2.6.1 

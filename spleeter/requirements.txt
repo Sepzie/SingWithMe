@@ -1,0 +1,8 @@
+flask==2.0.1
+spleeter==2.3.0
+numpy==1.19.2
+tensorflow==2.5.0
+librosa==0.8.0
+ffmpeg-python==0.2.0
+httpx[http2]>=0.19.0,<0.20.0
+werkzeug==2.0.3 

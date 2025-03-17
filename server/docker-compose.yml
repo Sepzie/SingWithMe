@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  spleeter-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - .:/app
+    environment:
+      - MODEL_PATH=/app/pretrained_models
+      - PYTHONUNBUFFERED=1
+    user: "${UID:-1000}:${GID:-1000}"  # Set proper user permissions
+    command: >
+      bash -c "mkdir -p /app/uploads /app/outputs &&
+              chmod 777 /app/uploads /app/outputs &&
+              uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    restart: unless-stopped 
