@@ -2,20 +2,18 @@ version: '3.8'
 
 services:
   api:
-    build: .
+    build: ./server
     ports:
       - "5000:5000"
     volumes:
-      - ./uploads:/app/uploads
-      - ./outputs:/app/outputs
-      - .:/app  # Mount the entire server directory for hot-reloading
+      - ./server:/app  # Mount for development
     environment:
       - OPEN_AI_API_KEY=${OPEN_AI_API_KEY}
       - SPLEETER_API_URL=http://spleeter:8000
       - REDIS_URL=redis://redis:6379
     depends_on:
-      redis:
-        condition: service_healthy
+      - redis
+      - spleeter
     networks:
       - app_network
     healthcheck:
@@ -25,7 +23,27 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]  # Enable auto-reload
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
+
+  spleeter:
+    build: ./spleeter
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./spleeter/audio:/audio
+      - ./spleeter/output:/output
+      - ./spleeter/app:/app  # Mount for development
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks:
+      - app_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
 
   redis:
     image: redis:alpine
@@ -44,7 +62,6 @@ services:
 
 networks:
   app_network:
-    name: app_network
     driver: bridge
 
 volumes:

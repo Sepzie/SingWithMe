@@ -1,125 +1,34 @@
-import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Alert } from 'react-native';
-import { Button, Text, Provider as PaperProvider } from 'react-native-paper';
-import { Audio } from 'expo-av';
-import { StatusBar } from 'expo-status-bar';
-import * as DocumentPicker from 'expo-document-picker';
+// Import uuid and add it to global scope
+import { v4 as uuidv4 } from 'uuid';
 
-export default function App() {
-  const [suond, setSound] = useState(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentFile, setCurrentFile] = useState(null);
-
-  // Cleanup sound when component unmounts
-  useEffect(() => {
-    return sound
-      ? () => {
-          sound.unloadAsync();
-        }
-      : undefined;
-  }, [sound]);
-
-  const pickAudio = async () => {
-    try {
-      const result = await DocumentPicker.getDocumentAsync({
-        type: 'audio/*',
-        copyToCacheDirectory: true
-      });
-
-      if (result.canceled) {
-        return;
-      }
-
-      // Unload previous sound if it exists
-      if (sound) {
-        await sound.unloadAsync();
-      }
-
-      const { uri } = result.assets[0];
-      setCurrentFile(result.assets[0].name);
-
-      // Load the audio file
-      const { sound: audioSound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: false }
-      );
-      
-      setSound(audioSound);
-      setIsPlaying(false);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to load audio file');
-    }
-  };
-
-  const handlePlayPause = async () => {
-    if (!sound) return;
-
-    try {
-      if (isPlaying) {
-        await sound.pauseAsync();
-      } else {
-        await sound.playAsync();
-      }
-      setIsPlaying(!isPlaying);
-    } catch (error) {
-      Alert.alert('Error', 'Failed to play/pause audio');
-    }
-  };
-
-  return (
-    <PaperProvider>
-      <View style={styles.container}>
-        <Text style={styles.title}>SingWithMe</Text>
-        
-        <Button
-          mode="contained"
-          onPress={pickAudio}
-          style={styles.button}
-        >
-          Select Audio File
-        </Button>
-
-        {currentFile && (
-          <Text style={styles.filename}>
-            Selected: {currentFile}
-          </Text>
-        )}
-
-        {sound && (
-          <Button
-            mode="contained"
-            onPress={handlePlayPause}
-            style={styles.button}
-          >
-            {isPlaying ? 'Pause' : 'Play'}
-          </Button>
-        )}
-        
-        <StatusBar style="auto" />
-      </View>
-    </PaperProvider>
-  );
+// Add uuidv4 to global scope for both web and native
+if (typeof global !== 'undefined') {
+  // For React Native
+  global.uuidv4 = uuidv4;
+} else if (typeof window !== 'undefined') {
+  // For web
+  window.uuidv4 = uuidv4;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#fff',
-    padding: 20,
-    paddingTop: 50,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 30,
-  },
-  button: {
-    marginVertical: 10,
-  },
-  filename: {
-    marginVertical: 10,
-    textAlign: 'center',
-    color: '#666',
-  },
-}); 
+// Patch expo-modules-core if it exists
+try {
+  const expoModulesCore = require('expo-modules-core');
+  if (expoModulesCore && typeof expoModulesCore === 'object') {
+    expoModulesCore.uuidv4 = uuidv4;
+  }
+} catch (e) {
+  // Module might not be available, ignore
+  console.warn('Could not patch expo-modules-core:', e.message);
+}
+
+import React from 'react';
+import { Provider as PaperProvider } from 'react-native-paper';
+import { MainScreen } from './src/screens/MainScreen';
+
+export default function App() {
+  return (
+    <PaperProvider>
+      <MainScreen />
+    </PaperProvider>
+  );
+} 
