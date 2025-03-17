@@ -1,14 +1,26 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, Alert } from 'react-native';
 import { Button, ProgressBar, ActivityIndicator } from 'react-native-paper';
 import * as DocumentPicker from 'expo-document-picker';
-import { uploadAudio, checkProcessingStatus, getProcessedTracks } from '../../services/api';
+import { uploadAudio, checkProcessingStatus, getProcessedTracks, subscribeToJobUpdates } from '../../services/api';
 
 export const FileUpload = ({ onUploadComplete }) => {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [error, setError] = useState(null);
+  const subscriptionRef = useRef(null);
+
+  // Cleanup subscription on unmount
+  useEffect(() => {
+    return () => {
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current = null;
+      }
+    };
+  }, []);
 
   const pickAudioFile = async () => {
     try {
@@ -101,10 +113,11 @@ export const FileUpload = ({ onUploadComplete }) => {
       setTimeout(() => {
         setIsUploading(false);
         setIsProcessing(true);
+        setProcessingProgress(0.1); // Start at 10%
 
-        // Poll for processing status
+        // If we have a job ID, subscribe to real-time updates and start monitoring
         if (uploadResponse && uploadResponse.id) {
-          pollProcessingStatus(uploadResponse.id);
+          monitorProcessingWithWebSocket(uploadResponse.id);
         } else {
           throw new Error('Invalid response from server');
         }
@@ -118,6 +131,88 @@ export const FileUpload = ({ onUploadComplete }) => {
     }
   };
 
+  const monitorProcessingWithWebSocket = (jobId) => {
+    console.log('Starting to monitor processing via WebSocket for job:', jobId);
+    
+    // Create a fallback mechanism in case WebSocket fails
+    const fallbackTimer = setTimeout(() => {
+      console.log('WebSocket monitoring timed out, falling back to polling');
+      
+      // Cleanup WebSocket subscription if it exists
+      if (subscriptionRef.current) {
+        subscriptionRef.current.unsubscribe();
+        subscriptionRef.current = null;
+      }
+      
+      // Fall back to polling
+      pollProcessingStatus(jobId);
+    }, 10000); // 10 seconds timeout
+    
+    // Subscribe to real-time updates
+    subscriptionRef.current = subscribeToJobUpdates(jobId, {
+      onStatusUpdate: (data) => {
+        console.log('WebSocket status update:', data);
+        clearTimeout(fallbackTimer); // Clear fallback timer on successful update
+        
+        setProcessingProgress(data.progress || 0.1);
+        
+        if (data.state === 'failed') {
+          handleProcessingError(new Error(data.error || 'Processing failed'));
+        }
+      },
+      onComplete: async (data) => {
+        console.log('WebSocket processing complete:', data);
+        clearTimeout(fallbackTimer); // Clear fallback timer on completion
+        
+        setProcessingProgress(1.0);
+        
+        try {
+          // Get the processed tracks
+          console.log('Processing completed, getting tracks...');
+          const tracksResponse = await getProcessedTracks(jobId);
+          console.log('Tracks response:', tracksResponse);
+          
+          setIsProcessing(false);
+          
+          // Call the callback with the processed tracks
+          if (onUploadComplete && tracksResponse) {
+            onUploadComplete(tracksResponse);
+          } else {
+            throw new Error('Invalid tracks response from server');
+          }
+          
+          // Cleanup subscription
+          if (subscriptionRef.current) {
+            subscriptionRef.current.unsubscribe();
+            subscriptionRef.current = null;
+          }
+        } catch (err) {
+          handleProcessingError(err);
+        }
+      },
+      onError: (data) => {
+        console.error('WebSocket processing error:', data);
+        clearTimeout(fallbackTimer); // Clear fallback timer on error
+        
+        handleProcessingError(new Error(data.error || 'Processing failed'));
+      }
+    });
+  };
+
+  const handleProcessingError = (err) => {
+    console.error('Error processing file:', err);
+    setIsProcessing(false);
+    setError(`Error processing file: ${err.message}`);
+    Alert.alert('Processing Error', `Failed to process file: ${err.message}`);
+    
+    // Cleanup subscription
+    if (subscriptionRef.current) {
+      subscriptionRef.current.unsubscribe();
+      subscriptionRef.current = null;
+    }
+  };
+
+  // Fallback polling method in case WebSocket fails
   const pollProcessingStatus = async (fileId) => {
     try {
       console.log('Starting to poll for processing status...');
@@ -161,10 +256,7 @@ export const FileUpload = ({ onUploadComplete }) => {
         throw new Error('Processing timed out');
       }
     } catch (err) {
-      console.error('Error checking processing status:', err);
-      setIsProcessing(false);
-      setError(`Error processing file: ${err.message}`);
-      Alert.alert('Processing Error', `Failed to process file: ${err.message}`);
+      handleProcessingError(err);
     }
   };
 
@@ -182,7 +274,8 @@ export const FileUpload = ({ onUploadComplete }) => {
       {isProcessing && (
         <View style={styles.processingContainer}>
           <Text style={styles.statusText}>Processing audio...</Text>
-          <ActivityIndicator animating={true} color="#6200ee" size="large" />
+          <Text style={styles.progressText}>{Math.round(processingProgress * 100)}%</Text>
+          <ProgressBar progress={processingProgress} color="#6200ee" style={styles.progressBar} />
         </View>
       )}
       
@@ -216,15 +309,22 @@ const styles = StyleSheet.create({
   processingContainer: {
     marginVertical: 20,
     alignItems: 'center',
+    width: '100%',
   },
   statusText: {
     marginBottom: 10,
     fontSize: 16,
     textAlign: 'center',
   },
+  progressText: {
+    marginBottom: 5,
+    fontSize: 14,
+    color: '#666',
+  },
   progressBar: {
     height: 10,
     borderRadius: 5,
+    width: '100%',
   },
   errorText: {
     color: 'red',

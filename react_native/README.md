@@ -98,4 +98,66 @@ If audio doesn't play correctly:
 
 ## License
 
-[MIT License](LICENSE) 
+[MIT License](LICENSE)
+
+## API Configuration
+
+The app uses a centralized configuration system for managing API endpoints across different environments. This makes it easy to switch between development, staging, and production environments.
+
+### Configuration Files
+
+- **src/config/apiConfig.js**: Central configuration file that exports API URLs based on the current environment
+- **.env**: Environment-specific configuration (not committed to Git)
+- **.env.example**: Example environment file that can be copied to create your own .env
+
+### How to Configure
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env
+   ```
+
+2. Edit the `.env` file to match your environment setup:
+   ```
+   # Development environment
+   API_URL_DEV=http://YOUR_LOCAL_IP:5000/api
+   WS_URL_DEV=http://YOUR_LOCAL_IP:5000
+   
+   # Current environment - can be 'dev', 'staging', or 'prod'
+   EXPO_ENV=dev
+   ```
+
+   Replace `YOUR_LOCAL_IP` with your actual local IP address (e.g., 10.0.0.48) for Android emulator access.
+
+### Running with Different Environments
+
+The package.json includes scripts for running the app in different environments:
+
+```bash
+# Development environment
+npm run start:dev        # Default development server
+npm run android:dev      # Android development build
+npm run ios:dev          # iOS development build
+npm run web:dev          # Web development build
+
+# Staging environment
+npm run start:staging    # Staging server
+npm run android:staging  # Android staging build
+npm run ios:staging      # iOS staging build
+npm run web:staging      # Web staging build
+
+# Production environment
+npm run start:prod       # Production server
+npm run android:prod     # Android production build
+npm run ios:prod         # iOS production build
+npm run web:prod         # Web production build
+```
+
+### How It Works
+
+- The configuration system reads environment variables from `.env`
+- The `app.config.js` file sets up environment-specific configurations
+- `apiConfig.js` exports the correct URLs based on the current platform and environment
+- Services like API and WebSocket use these exported values instead of hardcoded URLs
+
+This approach makes it easy to deploy to different environments without code changes. 
