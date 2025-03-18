@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -11,12 +11,11 @@ import aiohttp
 import redis
 from dotenv import load_dotenv
 import openai  # Import only the openai module
-from fastapi.openapi.docs import get_swagger_ui_html
+# from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.openapi.utils import get_openapi
 import asyncio
 import subprocess
 import sys
-import socketio
 from fastapi.staticfiles import StaticFiles
 import logging
 
@@ -34,15 +33,8 @@ except Exception as e:
     print(f"[WARNING] ffmpeg not found. Audio conversion fallback will not work: {e}")
     print("[WARNING] Please install ffmpeg for better audio compatibility with Whisper API")
 
+# Initialize FastAPI
 app = FastAPI()
-
-# Initialize Socket.IO
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins='*')
-socket_app = socketio.ASGIApp(sio, app)
-
-# Mount static files if directory exists
-if os.path.exists("static"):
-    app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Configure CORS
 app.add_middleware(
@@ -53,51 +45,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# WebSocket connection manager
-class ConnectionManager:
-    def __init__(self):
-        # All active connections
-        self.active_connections: List[WebSocket] = []
-        # Mapping of job_id to list of connections
-        self.job_subscriptions: Dict[str, List[WebSocket]] = {}
-        
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        print(f"WebSocket client connected. Total connections: {len(self.active_connections)}")
-        
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-            
-        # Remove from job subscriptions
-        for job_id, connections in list(self.job_subscriptions.items()):
-            if websocket in connections:
-                connections.remove(websocket)
-                if not connections:
-                    del self.job_subscriptions[job_id]
-        print(f"WebSocket client disconnected. Remaining connections: {len(self.active_connections)}")
-    
-    def subscribe_to_job(self, job_id: str, websocket: WebSocket):
-        if job_id not in self.job_subscriptions:
-            self.job_subscriptions[job_id] = []
-        if websocket not in self.job_subscriptions[job_id]:
-            self.job_subscriptions[job_id].append(websocket)
-            print(f"Client subscribed to job {job_id}. Total subscribers: {len(self.job_subscriptions[job_id])}")
-            
-    async def broadcast_to_job(self, job_id: str, message: dict):
-        if job_id in self.job_subscriptions:
-            connections = self.job_subscriptions[job_id].copy()
-            print(f"Broadcasting to {len(connections)} clients for job {job_id}: {message}")
-            for connection in connections:
-                try:
-                    await connection.send_json(message)
-                except Exception as e:
-                    print(f"Error sending message to client: {str(e)}")
-                    # Don't disconnect here, handle in the main loop
+# Storage paths
+UPLOAD_DIR = "uploads"
+OUTPUT_DIR = "outputs"
+TEST_DATA_DIR = "test_data"  # Relative to the app directory
 
-# Create connection manager instance
-manager = ConnectionManager()
+# Create directories
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+os.makedirs(TEST_DATA_DIR, exist_ok=True)
+
+# Add test mode constant
+TEST_MODE = os.getenv("TEST_MODE", "false").lower() == "true"
+TEST_JOB_ID = "test-123"
+
+# Mount directories for static file serving
+if os.path.exists("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/output", StaticFiles(directory=OUTPUT_DIR), name="output")
+app.mount("/test_data", StaticFiles(directory=TEST_DATA_DIR), name="test_data")
 
 # Configure OpenAI - use the module-level configuration
 api_key = os.getenv("OPEN_AI_API_KEY")
@@ -172,12 +138,6 @@ SPLEETER_API_URL = os.getenv("SPLEETER_API_URL", "http://localhost:8000")
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
 redis_client = redis.from_url(REDIS_URL)
 
-# Storage paths
-UPLOAD_DIR = "uploads"
-OUTPUT_DIR = "outputs"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
 class ProcessingStatus(BaseModel):
     state: str
     progress: Optional[float] = None
@@ -192,32 +152,15 @@ def get_job_status(job_id: str) -> Optional[ProcessingStatus]:
         return ProcessingStatus(**data)
     return None
 
+
 def set_job_status(job_id: str, status: ProcessingStatus):
-    redis_client.set(f"job:{job_id}", status.json())
-    
-    # Notify WebSocket clients about the update
-    if status.state == "completed" or status.state == "failed":
-        event_type = "processing_complete" if status.state == "completed" else "processing_error"
-        print(f"Job {job_id} {status.state}. Sending {event_type} event to WebSocket clients.")
-        asyncio.create_task(manager.broadcast_to_job(
-            job_id, 
-            {
-                "event": event_type,
-                "jobId": job_id,
-                "status": json.loads(status.json())
-            }
-        ))
-    else:
-        # Send progress updates
-        print(f"Job {job_id} progress update: {status.progress}. Sending status_update event.")
-        asyncio.create_task(manager.broadcast_to_job(
-            job_id, 
-            {
-                "event": "status_update",
-                "jobId": job_id,
-                "status": json.loads(status.json())
-            }
-        ))
+    try:
+        # Store status in Redis
+        redis_client.set(f"job:{job_id}", status.json())
+        print(f"Job {job_id} status updated: {status.state}")
+    except Exception as e:
+        print(f"Error in set_job_status: {e}")
+
 
 @app.get("/health")
 async def health_check():
@@ -418,8 +361,21 @@ async def process_audio(job_id: str, input_path: str):
         set_job_status(job_id, ProcessingStatus(state="failed", error=str(e)))
         raise
 
+# helper function to broadcast completed status after delay
+async def delayed_status_update(job_id: str):
+    await asyncio.sleep(3)  # 3 second delay
+    print(f"Setting completed status for test job after 3 seconds")
+    set_job_status(job_id, ProcessingStatus(state="completed", progress=1.0))
+
 @app.post("/api/upload")
 async def upload_file(file: UploadFile, background_tasks: BackgroundTasks):
+    if TEST_MODE:
+        # Set completed status after 3 seconds
+        job_id = TEST_JOB_ID
+        set_job_status(TEST_JOB_ID, ProcessingStatus(state="uploaded"))
+        asyncio.create_task(delayed_status_update(job_id))
+        return {"jobId": TEST_JOB_ID}
+        
     if not file.filename.endswith(('.mp3', '.wav')):
         raise HTTPException(400, "Only MP3 and WAV files are supported")
 
@@ -429,14 +385,20 @@ async def upload_file(file: UploadFile, background_tasks: BackgroundTasks):
     await save_upload_file(file, input_path)
     set_job_status(job_id, ProcessingStatus(state="uploaded"))
     
-    # Create an async task instead of using background_tasks
-    # This allows proper handling of WebSocket messages during processing
     asyncio.create_task(process_audio(job_id, input_path))
     
     return {"jobId": job_id}
 
+
 @app.get("/api/status/{job_id}")
 async def get_status(job_id: str):
+    if TEST_MODE:
+        return ProcessingStatus(
+            state="completed",
+            progress=1.0,
+            error=None
+        )
+        
     status = get_job_status(job_id)
     if not status:
         raise HTTPException(404, "Job not found")
@@ -444,6 +406,23 @@ async def get_status(job_id: str):
 
 @app.get("/api/tracks/{job_id}")
 async def get_tracks(job_id: str):
+    if TEST_MODE:
+        # List files in test_data directory
+        test_files = os.listdir(TEST_DATA_DIR)
+        print(f"Available test files: {test_files}")
+        
+        # Find the first vocal and instrumental files
+        vocal_file = "vocals.wav"
+        instrumental_file = "accompaniment.wav"
+        lyrics_file = "lyrics.json"
+
+
+        return {
+            "vocal": f"/test_data/{vocal_file}",
+            "instrumental": f"/test_data/{instrumental_file}",
+            "lyrics": json.load(open(os.path.join(TEST_DATA_DIR, lyrics_file)))
+        }
+
     status = get_job_status(job_id)
     if not status:
         raise HTTPException(404, "Job not found")
@@ -459,60 +438,6 @@ async def get_tracks(job_id: str):
         "lyrics": json.load(open(os.path.join(job_output_dir, "lyrics.json")))
     }
 
-@app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
-    await manager.connect(websocket)
-    try:
-        # Simple connection confirmation
-        await websocket.send_json({"event": "connected"})
-        
-        while True:
-            # Wait for messages from the client
-            data = await websocket.receive_json()
-            print(f"Received WebSocket message: {data}")
-            
-            # Handle subscription requests - check for both formats
-            if "subscribe" in data:
-                # Original format: {"subscribe": true, "jobId": "..."}
-                job_id = data.get("jobId")
-                if job_id:
-                    manager.subscribe_to_job(job_id, websocket)
-                    
-                    # Send current status immediately if available
-                    status = get_job_status(job_id)
-                    if status:
-                        await websocket.send_json({
-                            "event": "status_update",
-                            "jobId": job_id,
-                            "status": json.loads(status.json())
-                        })
-            elif isinstance(data, dict) and data.get("type") == "subscribe":
-                # Alternative format: {"type": "subscribe", "jobId": "..."}
-                job_id = data.get("jobId")
-                if job_id:
-                    manager.subscribe_to_job(job_id, websocket)
-                    
-                    # Send current status immediately if available
-                    status = get_job_status(job_id)
-                    if status:
-                        await websocket.send_json({
-                            "event": "status_update",
-                            "jobId": job_id,
-                            "status": json.loads(status.json())
-                        })
-    except WebSocketDisconnect:
-        manager.disconnect(websocket)
-    except Exception as e:
-        print(f"WebSocket error: {str(e)}")
-        manager.disconnect(websocket)
-
-@app.get("/api/docs", include_in_schema=False)
-async def get_documentation():
-    return get_swagger_ui_html(
-        openapi_url="/api/openapi.json",
-        title="SingWithMe API"
-    )
-
 @app.get("/api/openapi.json", include_in_schema=False)
 async def get_openapi_schema():
     return get_openapi(
@@ -522,40 +447,7 @@ async def get_openapi_schema():
         routes=app.routes,
     )
 
-# Socket.IO event handlers
-@sio.event
-async def connect(sid, environ):
-    print(f"Client connected: {sid}")
-    await sio.emit('connected', {'message': 'Connected to server'}, room=sid)
-
-@sio.event
-async def disconnect(sid):
-    print(f"Client disconnected: {sid}")
-
-@sio.event
-async def subscribe(sid, data):
-    job_id = data.get('jobId')
-    if job_id:
-        print(f"Client {sid} subscribed to job {job_id}")
-        sio.enter_room(sid, job_id)
-        
-        # Send current status immediately if available
-        status = get_job_status(job_id)
-        if status:
-            await sio.emit('status_update', {
-                'jobId': job_id,
-                'status': json.loads(status.json())
-            }, room=sid)
-
-# Update the broadcast_status function to use Socket.IO
-async def broadcast_status(job_id: str, status: ProcessingStatus):
-    """Broadcast status update to all subscribers of a job"""
-    print(f"Broadcasting status for job {job_id}: {status}")
-    await sio.emit('status_update', {
-        'jobId': job_id,
-        'status': json.loads(status.json())
-    }, room=job_id)
-
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(socket_app, host="0.0.0.0", port=5000) 
+    print("Starting server...")
+    uvicorn.run(app, host="0.0.0.0", port=5000) 

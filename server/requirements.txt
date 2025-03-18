@@ -13,5 +13,3 @@ librosa==0.10.1
 redis==5.0.1
 celery==5.3.6
 aiohttp==3.9.1
-websockets==11.0.3
-python-socketio==5.11.1 

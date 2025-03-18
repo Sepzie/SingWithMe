@@ -5,11 +5,13 @@ services:
       - "5000:5000"
     volumes:
       - ./server:/app  # Mount for development
+      - ./server/test_data:/app/test_data  # Mount test data directory
     environment:
       - HOST=0.0.0.0
       - OPEN_AI_API_KEY=${OPEN_AI_API_KEY}
       - SPLEETER_API_URL=http://spleeter:8000
       - REDIS_URL=redis://redis:6379
+      - TEST_MODE=false  # Enable test mode
     depends_on:
       - redis
       - spleeter
@@ -22,7 +24,7 @@ services:
       retries: 3
       start_period: 10s
     restart: unless-stopped
-    command: ["uvicorn", "main:socket_app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000", "--reload"]
 
   spleeter:
     build: ./spleeter

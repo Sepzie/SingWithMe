@@ -60,25 +60,16 @@ export const getApiUrl = () => {
   return `${getBaseUrl()}/api`;
 };
 
-// Get WebSocket URL (same as base URL but could be different if needed)
-export const getWebSocketUrl = () => {
-  return getBaseUrl();
-};
-
 // Export for convenience
 export const API_BASE_URL = getApiUrl();
-export const WEBSOCKET_URL = getWebSocketUrl();
 
 // Log the current configuration
 console.log(`[Config] Environment: ${getCurrentEnvironment()}`);
 console.log(`[Config] API URL: ${API_BASE_URL}`);
-console.log(`[Config] WebSocket URL: ${WEBSOCKET_URL}`);
 
 export default {
   getBaseUrl,
   getApiUrl,
-  getWebSocketUrl,
   API_BASE_URL,
-  WEBSOCKET_URL,
   ENV,
 }; 

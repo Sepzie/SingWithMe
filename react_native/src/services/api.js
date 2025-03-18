@@ -43,16 +43,9 @@ export const uploadAudio = async (file) => {
       throw new Error('Invalid response from server: missing jobId');
     }
     
-    // Return an object with id property to match the expected format
     return { id: response.data.jobId };
   } catch (error) {
     console.error('Error uploading audio:', error.message);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-      console.error('Response status:', error.response.status);
-    } else if (error.request) {
-      console.error('No response received:', error.request);
-    }
     throw error;
   }
 };
@@ -84,9 +77,6 @@ export const checkProcessingStatus = async (fileId) => {
     return clientStatus;
   } catch (error) {
     console.error('Error checking processing status:', error.message);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-    }
     throw error;
   }
 };
@@ -102,13 +92,9 @@ export const getProcessedTracks = async (fileId) => {
     const response = await axios.get(`${API_BASE_URL}/tracks/${fileId}`);
     console.log('Tracks response:', response.data);
     
-    // The server returns the tracks in the expected format
     return response.data;
   } catch (error) {
     console.error('Error getting processed tracks:', error.message);
-    if (error.response) {
-      console.error('Response data:', error.response.data);
-    }
     throw error;
   }
 }; 

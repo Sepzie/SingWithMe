@@ -39,10 +39,8 @@ export const AudioPlayer = ({ vocalTrack, instrumentalTrack, onTimeUpdate }) => 
   const togglePlayback = async () => {
     try {
       if (isPlaying) {
-        console.log('Pausing playback');
         await audioProcessor.pause();
       } else {
-        console.log('Starting playback');
         await audioProcessor.play();
       }
       setIsPlaying(!isPlaying);
