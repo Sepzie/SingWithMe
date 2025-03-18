@@ -1,0 +1,55 @@
+flowchart TB
+    subgraph Client["Client Applications"]
+        WebApp["Web Application"]
+        MobileApp["Mobile App"]
+    end
+
+    subgraph API["API Layer"]
+        APIGateway["API Gateway"]
+        AuthService["Authentication Service"]
+        ProjectService["Project Service"]
+        ProcessingService["Audio Processing Service"]
+    end
+
+    subgraph Storage["Storage Systems"]
+        DB[(Database)]
+        FileStorage["File Storage System"]
+    end
+
+    subgraph ProcessingEngines["Audio Processing Engines"]
+        SeparationEngine["Source Separation Engine"]
+        LyricsEngine["Lyrics Extraction Engine"]
+        MIDIEngine["MIDI Conversion Engine"]
+        SegmentationEngine["Voice Segmentation Engine"]
+    end
+
+    WebApp <--> APIGateway
+    MobileApp <--> APIGateway
+    
+    APIGateway <--> AuthService
+    APIGateway <--> ProjectService
+    APIGateway <--> ProcessingService
+    
+    AuthService <--> DB
+    ProjectService <--> DB
+    ProjectService <--> FileStorage
+    
+    ProcessingService <--> SeparationEngine
+    ProcessingService <--> LyricsEngine
+    ProcessingService <--> MIDIEngine
+    ProcessingService <--> SegmentationEngine
+    
+    SeparationEngine <--> FileStorage
+    LyricsEngine <--> FileStorage
+    MIDIEngine <--> FileStorage
+    SegmentationEngine <--> FileStorage
+    
+    classDef clientApp fill:#86CFFA,stroke:#333,stroke-width:1px;
+    classDef api fill:#B5F2A9,stroke:#333,stroke-width:1px;
+    classDef storage fill:#FFC374,stroke:#333,stroke-width:1px;
+    classDef processing fill:#F9A7DD,stroke:#333,stroke-width:1px;
+    
+    class WebApp,MobileApp clientApp;
+    class APIGateway,AuthService,ProjectService,ProcessingService api;
+    class DB,FileStorage storage;
+    class SeparationEngine,LyricsEngine,MIDIEngine,SegmentationEngine processing;

@@ -1,0 +1,61 @@
+flowchart TD
+    User((User))
+    
+    subgraph InputProcess["Input Processing"]
+        Upload[/"Upload Source Audio"/]
+        Validate["Validate Audio File"]
+        Store["Store Source Audio"]
+    end
+    
+    subgraph AudioProcessing["Audio Processing Pipeline"]
+        Separate["Separate Source Audio"]
+        ExtractLyrics["Extract Lyrics"]
+        GenerateMIDI["Generate Vocal MIDI"]
+        SegmentVoice["Segment Voice Tracks"]
+    end
+    
+    subgraph DataStorage["Data Storage"]
+        AudioDB[("Audio Files DB")]
+        MetadataDB[("Metadata DB")]
+    end
+    
+    subgraph OutputProcess["Output Delivery"]
+        Compile["Compile Project Data"]
+        Deliver["Deliver to User Interface"]
+    end
+    
+    User -->|"Uploads Audio"| Upload
+    Upload --> Validate
+    Validate -->|"Valid File"| Store
+    Validate -->|"Invalid File"| User
+    
+    Store -->|"Audio File"| AudioDB
+    Store -->|"Metadata"| MetadataDB
+    Store -->|"Processing Request"| Separate
+    
+    Separate -->|"Vocal Track"| ExtractLyrics
+    Separate -->|"Vocal Track"| GenerateMIDI
+    Separate -->|"Vocal Track"| SegmentVoice
+    Separate -->|"Accompaniment Track"| AudioDB
+    
+    ExtractLyrics -->|"Timestamped Lyrics"| MetadataDB
+    GenerateMIDI -->|"MIDI Data"| MetadataDB
+    SegmentVoice -->|"Voice Segments"| AudioDB
+    
+    MetadataDB -->|"Project Data"| Compile
+    AudioDB -->|"Audio Files"| Compile
+    
+    Compile --> Deliver
+    Deliver --> User
+    
+    classDef user fill:#F9E79F,stroke:#333,stroke-width:1px;
+    classDef input fill:#82E0AA,stroke:#333,stroke-width:1px;
+    classDef processing fill:#85C1E9,stroke:#333,stroke-width:1px;
+    classDef storage fill:#BB8FCE,stroke:#333,stroke-width:1px;
+    classDef output fill:#F5B7B1,stroke:#333,stroke-width:1px;
+    
+    class User user;
+    class Upload,Validate,Store input;
+    class Separate,ExtractLyrics,GenerateMIDI,SegmentVoice processing;
+    class AudioDB,MetadataDB storage;
+    class Compile,Deliver output;

@@ -1,0 +1,132 @@
+flowchart TB
+    subgraph GCP["Google Cloud Platform"]
+        subgraph Networking["Networking"]
+            CloudDNS["Cloud DNS"]
+            CloudCDN["Cloud CDN"]
+            LoadBalancer["Global Load Balancer"]
+            CloudArmor["Cloud Armor<br>WAF Protection"]
+        end
+        
+        subgraph ContainerServices["Container Services"]
+            subgraph GKE["Google Kubernetes Engine"]
+                subgraph Frontend["Frontend Namespace"]
+                    FrontendPods["Frontend Pods"]
+                end
+                
+                subgraph ApiServices["API Services Namespace"]
+                    AuthPods["Auth Service Pods"]
+                    ProjectPods["Project Service Pods"]
+                    ApiGatewayPods["API Gateway Pods"]
+                end
+                
+                subgraph ProcessingServices["Processing Services Namespace"]
+                    SeparationPods["Source Separation Pods"]
+                    LyricsPods["Lyrics Extraction Pods"]
+                    MidiPods["MIDI Conversion Pods"]
+                    SegmentationPods["Voice Segmentation Pods"]
+                end
+            end
+            
+            subgraph CloudRun["Cloud Run (Optional)"]
+                AuthService["Auth Service"]
+                ProjectService["Project Service"]
+            end
+        end
+        
+        subgraph DataServices["Data Services"]
+            CloudSQL[(Cloud SQL<br>PostgreSQL)]
+            Memorystore[(Memorystore<br>Redis)]
+            CloudStorage["Cloud Storage<br>Audio Files"]
+            Firestore[(Firestore<br>NoSQL)]
+        end
+        
+        subgraph QueueServices["Queue & Messaging"]
+            PubSub["Pub/Sub"]
+            CloudTasks["Cloud Tasks"]
+        end
+        
+        subgraph MonitoringServices["Monitoring & Operations"]
+            CloudMonitoring["Cloud Monitoring"]
+            CloudLogging["Cloud Logging"]
+            ErrorReporting["Error Reporting"]
+            Trace["Cloud Trace"]
+        end
+        
+        subgraph AIServices["AI & ML Services"]
+            SpeechToText["Speech-to-Text API"]
+            AIPlat["AI Platform<br>Custom ML Models"]
+        end
+    end
+    
+    subgraph DevOps["DevOps & CI/CD"]
+        CloudBuild["Cloud Build"]
+        ArtifactRegistry["Artifact Registry"]
+        CloudDeploy["Cloud Deploy"]
+    end
+    
+    %% External connections
+    CloudDNS --> CloudCDN
+    CloudCDN --> LoadBalancer
+    LoadBalancer --> CloudArmor
+    CloudArmor --> ApiGatewayPods
+    CloudArmor --> FrontendPods
+    
+    ArtifactRegistry -.-> GKE
+    ArtifactRegistry -.-> CloudRun
+    CloudBuild --> ArtifactRegistry
+    CloudDeploy --> GKE
+    
+    %% Internal connections
+    ApiGatewayPods --> AuthPods
+    ApiGatewayPods --> ProjectPods
+    
+    ProjectPods --> PubSub
+    PubSub --> ProcessingServices
+    
+    AuthPods --> CloudSQL
+    AuthPods --> Memorystore
+    
+    ProjectPods --> CloudSQL
+    ProjectPods --> CloudStorage
+    
+    SeparationPods --> CloudStorage
+    LyricsPods --> CloudStorage
+    MidiPods --> CloudStorage
+    SegmentationPods --> CloudStorage
+    
+    LyricsPods --> SpeechToText
+    SeparationPods --> AIPlat
+    
+    SeparationPods --> CloudTasks
+    LyricsPods --> CloudTasks
+    MidiPods --> CloudTasks
+    SegmentationPods --> CloudTasks
+    
+    GKE --> CloudMonitoring
+    CloudSQL --> CloudMonitoring
+    Memorystore --> CloudMonitoring
+    
+    GKE --> CloudLogging
+    CloudLogging --> ErrorReporting
+    
+    ApiGatewayPods --> Trace
+    
+    classDef gcp fill:#F1F3F4,stroke:#333,stroke-width:1px;
+    classDef networking fill:#8AB4F8,stroke:#333,stroke-width:1px;
+    classDef container fill:#FAD2CF,stroke:#333,stroke-width:1px;
+    classDef kubernetes fill:#FBBC04,stroke:#333,stroke-width:1px;
+    classDef data fill:#34A853,stroke:#333,stroke-width:1px,color:#fff;
+    classDef queue fill:#E8EAED,stroke:#333,stroke-width:1px;
+    classDef monitoring fill:#A142F4,stroke:#333,stroke-width:1px,color:#fff;
+    classDef ai fill:#4285F4,stroke:#333,stroke-width:1px;
+    classDef devops fill:#F9AB00,stroke:#333,stroke-width:1px;
+    
+    class GCP gcp;
+    class Networking,CloudDNS,CloudCDN,LoadBalancer,CloudArmor networking;
+    class ContainerServices,CloudRun,AuthService,ProjectService container;
+    class GKE,Frontend,FrontendPods,ApiServices,AuthPods,ProjectPods,ApiGatewayPods,ProcessingServices,SeparationPods,LyricsPods,MidiPods,SegmentationPods kubernetes;
+    class DataServices,CloudSQL,Memorystore,CloudStorage,Firestore data;
+    class QueueServices,PubSub,CloudTasks queue;
+    class MonitoringServices,CloudMonitoring,CloudLogging,ErrorReporting,Trace monitoring;
+    class AIServices,SpeechToText,AIPlat ai;
+    class DevOps,CloudBuild,ArtifactRegistry,CloudDeploy devops;

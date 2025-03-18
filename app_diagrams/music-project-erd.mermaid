@@ -1,0 +1,77 @@
+erDiagram
+    USER ||--o{ PROJECT : creates
+    PROJECT ||--|| SOURCE_AUDIO : has
+    PROJECT ||--o| VOCAL_TRACK : has
+    PROJECT ||--o| ACCOMPANIMENT_TRACK : has
+    PROJECT ||--o| LYRICS : has
+    PROJECT ||--o| VOCAL_MIDI : has
+    PROJECT ||--o{ VOICE_SEGMENT : contains
+    
+    USER {
+        int user_id PK
+        string username
+        string email
+        string password_hash
+        datetime created_at
+        datetime updated_at
+    }
+    
+    PROJECT {
+        int project_id PK
+        int user_id FK
+        string title
+        text description
+        datetime created_at
+        datetime updated_at
+    }
+    
+    SOURCE_AUDIO {
+        int source_audio_id PK
+        int project_id FK
+        string file_path
+        boolean is_acapella
+        float duration
+        string format
+        datetime uploaded_at
+    }
+    
+    VOCAL_TRACK {
+        int vocal_track_id PK
+        int project_id FK
+        string file_path
+        float duration
+        datetime created_at
+    }
+    
+    ACCOMPANIMENT_TRACK {
+        int accompaniment_track_id PK
+        int project_id FK
+        string file_path
+        float duration
+        datetime created_at
+    }
+    
+    LYRICS {
+        int lyrics_id PK
+        int project_id FK
+        text content
+        datetime created_at
+        datetime updated_at
+    }
+    
+    VOCAL_MIDI {
+        int vocal_midi_id PK
+        int project_id FK
+        string file_path
+        datetime created_at
+    }
+    
+    VOICE_SEGMENT {
+        int segment_id PK
+        int project_id FK
+        string file_path
+        float start_time
+        float end_time
+        string segment_name
+        datetime created_at
+    }

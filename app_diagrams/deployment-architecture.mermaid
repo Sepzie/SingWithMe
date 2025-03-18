@@ -1,0 +1,93 @@
+flowchart TB
+    subgraph Users["User Devices"]
+        Browser["Web Browser"]
+        Mobile["Mobile Device"]
+    end
+    
+    subgraph Cloud["Cloud Infrastructure"]
+        subgraph FrontEnd["Frontend Services"]
+            CDN["Content Delivery Network"]
+            StaticHost["Static Hosting"]
+        end
+        
+        subgraph ApiCluster["API Cluster"]
+            LB["Load Balancer"]
+            ApiServer1["API Server 1"]
+            ApiServer2["API Server 2"]
+            ApiServerN["API Server N"]
+        end
+        
+        subgraph ProcessingCluster["Processing Cluster"]
+            Queue["Job Queue"]
+            Worker1["Worker 1"]
+            Worker2["Worker 2"]
+            WorkerN["Worker N"]
+        end
+        
+        subgraph DataLayer["Data Layer"]
+            PrimaryDB[(Primary DB)]
+            ReplicaDB[(Replica DB)]
+            ObjectStorage["Object Storage"]
+            Cache["Cache Layer"]
+        end
+        
+        subgraph Monitoring["Monitoring & Management"]
+            Logs["Logging Service"]
+            Metrics["Metrics Service"]
+            Alerts["Alert System"]
+        end
+    end
+    
+    Browser <--> CDN
+    Mobile <--> CDN
+    CDN <--> StaticHost
+    CDN <--> LB
+    
+    LB --> ApiServer1
+    LB --> ApiServer2
+    LB --> ApiServerN
+    
+    ApiServer1 <--> Queue
+    ApiServer2 <--> Queue
+    ApiServerN <--> Queue
+    
+    Queue --> Worker1
+    Queue --> Worker2
+    Queue --> WorkerN
+    
+    ApiServer1 <--> PrimaryDB
+    ApiServer2 <--> PrimaryDB
+    ApiServerN <--> PrimaryDB
+    PrimaryDB --> ReplicaDB
+    
+    ApiServer1 <--> Cache
+    ApiServer2 <--> Cache
+    ApiServerN <--> Cache
+    
+    Worker1 <--> ObjectStorage
+    Worker2 <--> ObjectStorage
+    WorkerN <--> ObjectStorage
+    
+    ApiServer1 --> Logs
+    ApiServer2 --> Logs
+    ApiServerN --> Logs
+    Worker1 --> Logs
+    Worker2 --> Logs
+    WorkerN --> Logs
+    
+    Logs --> Metrics
+    Metrics --> Alerts
+    
+    classDef users fill:#FFD166,stroke:#333,stroke-width:1px;
+    classDef frontend fill:#06D6A0,stroke:#333,stroke-width:1px;
+    classDef api fill:#118AB2,stroke:#333,stroke-width:1px;
+    classDef processing fill:#EF476F,stroke:#333,stroke-width:1px;
+    classDef data fill:#073B4C,stroke:#333,stroke-width:1px,color:#fff;
+    classDef monitoring fill:#9B5DE5,stroke:#333,stroke-width:1px;
+    
+    class Browser,Mobile users;
+    class CDN,StaticHost frontend;
+    class LB,ApiServer1,ApiServer2,ApiServerN api;
+    class Queue,Worker1,Worker2,WorkerN processing;
+    class PrimaryDB,ReplicaDB,ObjectStorage,Cache data;
+    class Logs,Metrics,Alerts monitoring;

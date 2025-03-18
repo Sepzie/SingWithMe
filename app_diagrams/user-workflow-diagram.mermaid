@@ -1,0 +1,46 @@
+sequenceDiagram
+    actor User
+    participant WebApp
+    participant API
+    participant ProcessingService
+    participant Storage
+    
+    User->>WebApp: Login
+    WebApp->>API: Authentication Request
+    API-->>WebApp: Authentication Response
+    
+    User->>WebApp: Create New Project
+    WebApp->>API: Create Project Request
+    API->>Storage: Store Project Metadata
+    Storage-->>API: Confirmation
+    API-->>WebApp: Project Created Response
+    
+    User->>WebApp: Upload Source Audio
+    WebApp->>API: Upload File
+    API->>Storage: Store Audio File
+    Storage-->>API: File Stored Confirmation
+    API->>ProcessingService: Process Audio Request
+    
+    ProcessingService->>ProcessingService: Separate Vocals & Accompaniment
+    ProcessingService->>Storage: Store Vocal Track
+    ProcessingService->>Storage: Store Accompaniment Track
+    
+    ProcessingService->>ProcessingService: Extract Lyrics
+    ProcessingService->>Storage: Store Lyrics
+    
+    ProcessingService->>ProcessingService: Generate Vocal MIDI
+    ProcessingService->>Storage: Store MIDI Data
+    
+    ProcessingService->>ProcessingService: Segment Voice Tracks
+    ProcessingService->>Storage: Store Voice Segments
+    
+    ProcessingService-->>API: Processing Complete
+    API-->>WebApp: Update Project Status
+    WebApp-->>User: Show Processing Results
+    
+    User->>WebApp: Edit/Modify Project
+    WebApp->>API: Update Project
+    API->>Storage: Update Data
+    Storage-->>API: Confirmation
+    API-->>WebApp: Update Complete
+    WebApp-->>User: Show Updated Project
